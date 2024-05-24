@@ -19,6 +19,36 @@ def draw_oval(draw, center_x, center_y, size, aspect_ratio, color):
     draw.ellipse([(center_x - size / 2, center_y - size / 2 / aspect_ratio),
                   (center_x + size / 2, center_y + size / 2 / aspect_ratio)], fill=color)
 
+def rotate_points(points, center=(0, 0), angle_deg=0):  
+    """  
+    Rotate a list of 2D points around a center point by a given angle (in degrees).  
+      
+    :param points: List of tuples representing 2D points (e.g., [(x1, y1), (x2, y2), ...])  
+    :param center: Tuple representing the center point to rotate around (default is (0, 0))  
+    :param angle_deg: Angle in degrees to rotate the points  
+    :return: List of rotated 2D points  
+    """  
+    angle_rad = math.radians(angle_deg)  # Convert degrees to radians  
+    cx, cy = center  # Extract center coordinates  
+    rotated_points = []  
+      
+    for x, y in points:  
+        # Translate point back to origin  
+        ox = x - cx  
+        oy = y - cy  
+          
+        # Perform rotation  
+        nx = ox * math.cos(angle_rad) - oy * math.sin(angle_rad)  
+        ny = ox * math.sin(angle_rad) + oy * math.cos(angle_rad)  
+          
+        # Translate point back to original position  
+        x_rotated = nx + cx  
+        y_rotated = ny + cy  
+          
+        # Append rotated point to the list  
+        rotated_points.append((x_rotated, y_rotated))  
+      
+    return rotated_points
 def tensor2pil(image):
     return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
 def pil2tensor(image):
@@ -82,21 +112,44 @@ class OpenPoseKeyPointMask:
         return (x,y,z)
     def box_keypoint(self, pose, points_we_want, person_number=0):
         if person_number >= len(pose["people"]):
-            return (0,0,0,0)
+            return (0,0,0,0,0)
+        min_size=10
+        canvas_width =pose["canvas_width"]
+        canvas_height =pose["canvas_height"]
         points=[]
         for element in points_we_want:
             (x,y,z) = self.get_keypoint_from_list(pose["people"][person_number]["pose_keypoints_2d"], element,pose)
             if z != 0.0:
-                points.append((x,y))
+                points.append((x*canvas_width,y*canvas_height))
+        
         if len(points) > 0:
             if len(points) < 3:
-                points.append(points[0])
+                points.append((points[0][0]+min_size,points[0][1]))
             if len(points) < 3:
-                points.append(points[0])
+                points.append((points[0][0],points[0][1]+min_size))
         else:
-            return (0,0,0,0)
+            return (0,0,0,0,0)
         rectangle = self.min_area_rectangle(points)
-        return (rectangle[0],rectangle[1],abs(rectangle[0]-rectangle[2]),abs(rectangle[1]-rectangle[3]))
+        width_rc  = abs(rectangle[0]-rectangle[2])
+        height_rc = abs(rectangle[1]-rectangle[3])
+        x = rectangle[0]
+        y = rectangle[1]
+        angle=0
+        center=(0,0)
+        for i in range(-90,90,1):
+            if i==0:
+                continue
+            rectangle = self.min_area_rectangle(rotate_points(points,center=center,angle_deg=i))
+            area = abs(rectangle[0]-rectangle[2])*abs(rectangle[1]-rectangle[3])
+            if area < width_rc*height_rc:
+                width_rc  = abs(rectangle[0]-rectangle[2])
+                height_rc = abs(rectangle[1]-rectangle[3])
+                x = rectangle[0]
+                y = rectangle[1]
+                angle=i
+        x,y=rotate_points([[x,y]],center=center,angle_deg=(0-angle))[0]
+        print(x,y,angle,height_rc,width_rc,math.sin(math.radians(angle)))
+        return (x/canvas_width,y/canvas_height,width_rc/canvas_width,height_rc/canvas_height,angle)
     def get_torso_width(self,pose,person_number=0):
         if person_number >= len(pose["people"]):
             return 0
@@ -116,6 +169,15 @@ class OpenPoseKeyPointMask:
             (x2,y2,z2) = self.get_keypoint_from_list(pose["people"][person_number]["pose_keypoints_2d"], 11,pose)
         if z != 0.0 and z2 != 0.0:
             return abs(y-y2)
+        return 0
+    def get_torso_angle(self,pose,person_number=0):
+        if person_number >= len(pose["people"]):
+            return 0
+        (x,y,z) = self.get_keypoint_from_list(pose["people"][person_number]["pose_keypoints_2d"], 1,pose)
+        (x2,y2,z2) = self.get_keypoint_from_list(pose["people"][person_number]["pose_keypoints_2d"], 2,pose)
+        (x3,y3,z3) = self.get_keypoint_from_list(pose["people"][person_number]["pose_keypoints_2d"], 5,pose)
+        if z != 0.0 and z2 != 0.0 and z3 != 0.0:
+            return math.degrees(math.atan2((y3+y2)/2 - y,(x3+x2)/2 - x))
         return 0
     def get_head_width(self,pose,person_number=0):
         if person_number >= len(pose["people"]):
@@ -152,6 +214,8 @@ class OpenPoseKeyPointMask:
         center_y = height // 2 + y_offset         
         size = min(width - x_offset, height - y_offset) * zoom
         aspect_ratio = (width / height) if height != 0 else 1
+        if aspect_ratio > 1:
+            size = max(width - x_offset, height - y_offset) * zoom
         color = 'white'
 
         shape_functions = {
@@ -195,6 +259,8 @@ class OpenPoseKeyPointMask:
                     out_x_offset=x_offset*point_width*x_zoom*image_width
                     out_y_offset=y_offset*point_height*y_zoom*image_height
                     shape_img=self.make_shape(int(point_width*image_width*x_zoom),int(point_height*image_height*y_zoom),0,shape)
+                    rotation=self.get_torso_angle(pose,person_number)
+                    shape_img = shape_img.rotate(rotation,expand=True)
                 else:
                     box=self.box_keypoint(pose, points_we_want, person_number)
                     out_img_x=int(box[0]*image_width)
@@ -204,6 +270,13 @@ class OpenPoseKeyPointMask:
                     out_x_offset=x_offset*box_width*x_zoom
                     out_y_offset=y_offset*box_height*y_zoom
                     shape_img=self.make_shape(int(box_width*x_zoom),int(box_height*y_zoom),0,shape)
+                if len(box)==5:
+                    rotation=box[4]
+                    shape_img = shape_img.rotate(rotation,expand=True)
+                    if rotation<0:
+                        out_x_offset=out_x_offset+int(box_height*x_zoom*math.sin(math.radians(rotation)))
+                    if rotation>0:
+                        out_y_offset=out_y_offset-int(box_width*y_zoom*math.sin(math.radians(rotation)))
                 out_img.paste(shape_img,(int(out_img_x+out_x_offset), int(out_img_y+out_y_offset)))
             mask=out_img.convert("L")
             # out_img.show()

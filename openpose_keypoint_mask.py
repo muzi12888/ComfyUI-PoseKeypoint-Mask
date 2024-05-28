@@ -72,12 +72,15 @@ class OpenPoseKeyPointMask:
                 "points_list": ("STRING", {"multiline": True, "default": "1,8,11"}),
                 "mode": (modes,{"default": "box"}),
                 "shape": (shapes,{"default": "oval"}),
-                "x_offset": ("FLOAT", { "min": -10, "max": 10, "default": 0.0 }),
-                "y_offset": ("FLOAT", { "min": -10, "max": 10, "default": 0.0 }),
-                "x_zoom": ("FLOAT", { "min": 0, "max": 100, "default": 1.0 }),
-                "y_zoom": ("FLOAT", { "min": 0, "max": 100, "default": 1.0 }),
+                "x_offset": ("FLOAT", { "min": -10, "max": 10, "default": 0.0, "step": 0.05 }),
+                "y_offset": ("FLOAT", { "min": -10, "max": 10, "default": 0.0, "step": 0.05 }),
+                "x_zoom": ("FLOAT", { "min": 0, "max": 100, "default": 1.0, "step": 0.1 }),
+                "y_zoom": ("FLOAT", { "min": 0, "max": 100, "default": 1.0, "step": 0.1 }),
+                "x_min": ("FLOAT", { "min": 0, "max": 1, "default": 0, "step": 0.001 }),
+                "y_min": ("FLOAT", { "min": 0, "max": 1, "default": 0, "step": 0.001 }),
                 "person_index": ("INT", { "default": -1 }),
                 "auto_rotate": ("BOOLEAN", { "default": True }),
+                "back_hide": ("BOOLEAN", { "default": False }),
             }
         }
 
@@ -215,6 +218,14 @@ class OpenPoseKeyPointMask:
         if z != 0.0 and z2 != 0.0:
             return abs(y-y2)
         return 0
+    def get_back_hide_with(self,pose,person_number=0):
+        if person_number >= len(pose["people"]):
+            return 0
+        (x,y,z) = self.get_keypoint_from_list(pose["people"][person_number]["pose_keypoints_2d"], 8,pose)
+        (x2,y2,z2) = self.get_keypoint_from_list(pose["people"][person_number]["pose_keypoints_2d"], 11,pose)
+        if z != 0.0 and z2 != 0.0:
+            return x2-x
+        return 0
     def make_shape(self, width, height, rotation,shape,x_offset=0, y_offset=0, zoom=1.0,):
         bg_color = (0,0,0)
         shape_color = (255,255,255)
@@ -251,8 +262,8 @@ class OpenPoseKeyPointMask:
         result_image = Image.composite(shape_img, back_img, shape_mask) 
         return result_image
     def mask_keypoints(self,pose_keypoint, image_width, image_height, points_list="1,8,11",
-                       mode="box",shape="oval",x_offset=0, y_offset=0, x_zoom=1.0, y_zoom=1.0,
-                       person_index=-1,auto_rotate=True):
+                       mode="box",shape="oval",x_offset=0, y_offset=0, x_zoom=1.0, y_zoom=1.0,x_min=1.0, y_min=1.0,
+                       person_index=-1,auto_rotate=True,back_hide=False):
         points_we_want = []
         for element in points_list.split(","):
             if element.isdigit():
@@ -271,6 +282,19 @@ class OpenPoseKeyPointMask:
                         point_width=self.get_head_width(pose,person_number)*2
                     if point_height==0:
                         point_height=self.get_head_height(pose,person_number)*2
+                    min_width=point_height/image_width*image_height/2.5
+                    if point_width<min_width:
+                            point_width=min_width
+                    if back_hide:
+                        back_hide_with=self.get_back_hide_with(pose,person_number)*2
+                        point_width=point_width+back_hide_with if back_hide_with<0 else point_width
+                        if point_width<0:
+                            point_width=0
+                            point_height=0
+                    if x_min>point_width:
+                        point_width=x_min
+                    if y_min>point_height:
+                        point_height=y_min
                     out_img_x=int((box[0]-point_width/2)*image_width)
                     out_img_y=int(box[1]*image_height)
                     out_x_offset=x_offset*point_width*x_zoom*image_width
@@ -294,6 +318,13 @@ class OpenPoseKeyPointMask:
                     box_height=int(box[3]*image_height)
                     out_x_offset=x_offset*box_width*x_zoom
                     out_y_offset=y_offset*box_height*y_zoom
+                    if back_hide and self.get_back_hide_with(pose,person_number)<0:
+                        box_width=0
+                        box_height=0
+                    if x_min*image_width>box_width:
+                        box_width=x_min*image_width
+                    if y_min*image_height>box_height:
+                        box_height=y_min*image_height
                     shape_img=self.make_shape(int(box_width*x_zoom),int(box_height*y_zoom),0,shape)
                     if len(box)==5:
                         rotation=box[4]
@@ -307,6 +338,26 @@ class OpenPoseKeyPointMask:
             # out_img.show()
             full_masks.append(pil2tensor(mask))
         return (torch.cat(full_masks, dim=0),)
+
+class ImageBrightness:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "brightness_factor": ("FLOAT", { "default": 0, "min": -1, "max": 1, "step": 0.01, }),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "execute"
+    CATEGORY = "image/postprocessing"
+
+    def execute(self, image, brightness_factor=0):
+        image = torch.clamp(image + brightness_factor, min=0, max=1)  
+        return(image,)
+
 NODE_CLASS_MAPPINGS = {
     "Openpose Keypoint Mask": OpenPoseKeyPointMask,
+    "Image Brightness": ImageBrightness,
 }

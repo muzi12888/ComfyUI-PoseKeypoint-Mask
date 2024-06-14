@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-posekeypoint-mask"
+description = "Convert PoseKeypoint to mask, please refer to the example workflow for usage instructions."
+version = "1.0.0"
+license = "LICENSE"
+
+[project.urls]
+Repository = "https://github.com/muzi12888/ComfyUI-PoseKeypoint-Mask"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ComfyUI-PoseKeypoint-Mask"
+Icon = ""

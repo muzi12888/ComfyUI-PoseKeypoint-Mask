@@ -9,6 +9,6 @@ Repository = "https://github.com/muzi12888/ComfyUI-PoseKeypoint-Mask"
 #  Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
-PublisherId = ""
+PublisherId = "muzi12888"
 DisplayName = "ComfyUI-PoseKeypoint-Mask"
 Icon = ""

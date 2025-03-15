@@ -81,6 +81,7 @@ class OpenPoseKeyPointMask:
                 "person_index": ("INT", { "default": -1 }),
                 "auto_rotate": ("BOOLEAN", { "default": True }),
                 "back_hide": ("BOOLEAN", { "default": False }),
+                "alpha": ("FLOAT", { "min": 0, "max": 1, "default": 1, "step": 0.1 }),
             }
         }
 
@@ -226,9 +227,9 @@ class OpenPoseKeyPointMask:
         if z != 0.0 and z2 != 0.0:
             return x2-x
         return 0
-    def make_shape(self, width, height, rotation,shape,x_offset=0, y_offset=0, zoom=1.0,):
+    def make_shape(self, width, height, rotation,shape,alpha=1.0,x_offset=0, y_offset=0, zoom=1.0,):
         bg_color = (0,0,0)
-        shape_color = (255,255,255)
+        shape_color = (int(255*alpha),int(255*alpha),int(255*alpha))
         if width==0:
             width=1
         if height==0:
@@ -263,7 +264,7 @@ class OpenPoseKeyPointMask:
         return result_image
     def mask_keypoints(self,pose_keypoint, image_width, image_height, points_list="1,8,11",
                        mode="box",shape="oval",x_offset=0, y_offset=0, x_zoom=1.0, y_zoom=1.0,x_min=1.0, y_min=1.0,
-                       person_index=-1,auto_rotate=True,back_hide=False):
+                       person_index=-1,auto_rotate=True,back_hide=False,alpha=1.0):
         points_we_want = []
         for element in points_list.split(","):
             if element.isdigit():
@@ -299,7 +300,7 @@ class OpenPoseKeyPointMask:
                     out_img_y=int(box[1]*image_height)
                     out_x_offset=x_offset*point_width*x_zoom*image_width
                     out_y_offset=y_offset*point_height*y_zoom*image_height
-                    shape_img=self.make_shape(int(point_width*image_width*x_zoom),int(point_height*image_height*y_zoom),0,shape)
+                    shape_img=self.make_shape(int(point_width*image_width*x_zoom),int(point_height*image_height*y_zoom),0,shape,alpha)
                     if auto_rotate:
                         rotation=self.get_torso_angle(pose,person_number)
                         shape_img = shape_img.rotate(rotation,expand=True)
@@ -325,7 +326,7 @@ class OpenPoseKeyPointMask:
                         box_width=x_min*image_width
                     if y_min*image_height>box_height:
                         box_height=y_min*image_height
-                    shape_img=self.make_shape(int(box_width*x_zoom),int(box_height*y_zoom),0,shape)
+                    shape_img=self.make_shape(int(box_width*x_zoom),int(box_height*y_zoom),0,shape,alpha)
                     if len(box)==5:
                         rotation=box[4]
                         shape_img = shape_img.rotate(rotation,expand=True)
